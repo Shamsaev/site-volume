@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <title>Site Volume</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <main class="app">
+    <header class="site card">
+      <div class="fav" id="fav" aria-hidden="true"></div>
+      <div class="host" id="host">—</div>
+      <button class="icon-btn" id="reset" title="Сбросить для этого сайта" aria-label="Сбросить">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 2.6-6.4L3 8"/><path d="M3 3v5h5"/></svg>
+      </button>
+    </header>
+
+    <div class="banner card" id="perm" hidden>
+      <p>Нужен доступ к сайтам. После разрешения обновите вкладку.</p>
+      <button class="primary" id="grant">Разрешить</button>
+    </div>
+    <div class="banner card" id="unsupported" hidden>
+      <p>На служебных страницах Firefox расширения не работают.</p>
+    </div>
+
+    <div class="controls">
+      <section class="volume card" id="dial">
+        <label class="readout" title="Кликните и введите значение. Стрелки ↑↓ — ±1, с Shift — ±10">
+          <input id="pct" type="text" inputmode="numeric" maxlength="3" autocomplete="off" spellcheck="false" value="100" aria-label="Громкость в процентах">
+          <span class="unit">%</span>
+        </label>
+        <div class="state" id="state">без изменений</div>
+        <input type="range" class="vol" id="vol" min="0" max="600" step="1" value="100" aria-label="Громкость, %">
+      </section>
+
+      <div class="presets" id="presets">
+        <button data-v="0" title="Без звука" aria-label="Без звука">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="m16 9 5 6M21 9l-5 6"/></svg>
+        </button>
+        <button data-v="25">25</button>
+        <button data-v="50">50</button>
+        <button data-v="75">75</button>
+        <button data-v="100">100</button>
+        <button data-v="150">150</button>
+        <button data-v="200">200</button>
+        <button data-v="300">300</button>
+        <button data-v="400">400</button>
+        <button data-v="600">600</button>
+      </div>
+
+      <section class="eq card" title="Двойной клик по ползунку — сброс в 0">
+        <div class="eq-row">
+          <label for="bass">Басы</label>
+          <input type="range" class="bi" id="bass" min="-15" max="15" step="1" value="0">
+          <output id="bassOut" for="bass">0 дБ</output>
+        </div>
+        <div class="eq-row">
+          <label for="treble">Высокие</label>
+          <input type="range" class="bi" id="treble" min="-15" max="15" step="1" value="0">
+          <output id="trebleOut" for="treble">0 дБ</output>
+        </div>
+      </section>
+    </div>
+
+    <p class="hint" id="hint" hidden>Обновите вкладку — расширение ещё не подключилось к странице.</p>
+
+    <details class="sites card">
+      <summary>Сайты с настройками <span class="count" id="count">0</span></summary>
+      <ul id="list"></ul>
+    </details>
+  </main>
+
+  <script src="shared.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>
