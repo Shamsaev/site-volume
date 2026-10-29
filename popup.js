@@ -12,14 +12,6 @@ const pctOf = (s) => Math.round(s.volume * 100);
 const along = (frac) => `calc(10px + (100% - 20px) * ${frac})`;
 const fmtDb = (v) => (v > 0 ? `+${v}` : v < 0 ? `−${-v}` : '0') + ' дБ';
 
-function stateText(pct) {
-  if (pct === 0) return 'без звука';
-  if (pct < 100) return 'тише обычного';
-  if (pct === 100) return 'без изменений';
-  if (pct <= 300) return 'усиление';
-  return 'сильное усиление';
-}
-
 // ---------- ввод процентов ----------
 
 const pctInput = $('pct');
@@ -40,7 +32,6 @@ function commitPct() {
 pctInput.addEventListener('focus', () => {
   editing = false;
   pctInput.select();
-  $('state').textContent = 'введите 0–600 и нажмите Enter';
 });
 
 pctInput.addEventListener('input', () => {
@@ -77,8 +68,6 @@ function render() {
 
   if (!editing) pctInput.value = pct;
   fitPct();
-  $('state').textContent =
-    document.activeElement === pctInput ? 'введите 0–600 и нажмите Enter' : stateText(pct);
 
   const vol = $('vol');
   vol.value = pct;

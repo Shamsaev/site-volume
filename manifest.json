@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Site Volume",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "Отдельная громкость для каждого сайта: усиление до 600%, басы и высокие частоты.",
   "icons": {
     "48": "icons/icon.svg",
