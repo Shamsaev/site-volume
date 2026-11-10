@@ -1,5 +1,5 @@
 // Контент-скрипт: находит <audio>/<video> на странице и пропускает их звук
-// через Web Audio: басы → высокие → громкость → лимитер → выход.
+// через Web Audio: басы → высокие → громкость → (лимитер, если нужен) → выход.
 // Пока для сайта стоят настройки по умолчанию, страницу не трогаем вообще.
 
 (() => {
@@ -20,6 +20,36 @@
   const pending = new WeakSet();
 
   // ---------- Web Audio ----------
+
+  // Лимитер нужен, только когда сигнал может выйти за 0 дБFS: при усилении
+  // или подъёме эквалайзера. Иначе звук идёт напрямую, без обработки.
+  const needsLimiter = (s) => s.volume > 1 || s.bass > 0 || s.treble > 0;
+
+  // Параметры подобраны замером: медленная атака не ломает форму волны на басах,
+  // а подрезка −2.5 дБ гасит встроенный makeup gain компрессора, который иначе
+  // постоянно упирает сигнал в потолок и даёт хрип.
+  const LIMITER = { threshold: -4, knee: 4, ratio: 20, attack: 0.05, release: 0.8, trim: 0.75 };
+
+  // Мягкий ограничитель: до 0.9 линейно, выше плавно прижимается к 1.0,
+  // поэтому до звуковой карты не доходят значения больше 1 (жёсткий клип = хрип).
+  // WaveShaper обрезает вход за пределами [-1, 1], поэтому на входе делим на HEADROOM.
+  const HEADROOM = 4;
+  const KNEE_START = 0.9;
+  const CEILING = 0.98; // запас под выбросы фильтра передискретизации (oversample 4x)
+  let softClipCurve = null;
+  function getSoftClipCurve() {
+    if (softClipCurve) return softClipCurve;
+    const n = 4096;
+    const a = KNEE_START;
+    softClipCurve = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const x = ((i / (n - 1)) * 2 - 1) * HEADROOM;
+      const ax = Math.abs(x);
+      const y = ax <= a ? ax : a + (1 - a) * Math.tanh((ax - a) / (1 - a));
+      softClipCurve[i] = Math.sign(x) * y * CEILING;
+    }
+    return softClipCurve;
+  }
 
   // AudioContext без действия пользователя может остаться "suspended".
   // Подключать элемент к спящему контексту нельзя — звук пропадёт.
@@ -78,15 +108,33 @@
 
       const gain = ctx.createGain();
 
+      // Две параллельные ветки с плавным переключением:
+      //   dry — напрямую (громкость ≤ 100% и эквалайзер не поднят),
+      //   wet — компрессор → подрезка → мягкий ограничитель.
+      // Компрессор в wet работает постоянно, поэтому при переключении нет скачка.
+      const dry = ctx.createGain();
+
       const limiter = ctx.createDynamicsCompressor();
-      limiter.threshold.value = -1;
-      limiter.knee.value = 0;
-      limiter.attack.value = 0.003;
-      limiter.release.value = 0.25;
+      limiter.threshold.value = LIMITER.threshold;
+      limiter.knee.value = LIMITER.knee;
+      limiter.ratio.value = LIMITER.ratio;
+      limiter.attack.value = LIMITER.attack;
+      limiter.release.value = LIMITER.release;
 
-      source.connect(bass).connect(treble).connect(gain).connect(limiter).connect(ctx.destination);
+      const trim = ctx.createGain();
+      trim.gain.value = LIMITER.trim / HEADROOM;
 
-      const nodes = { bass, treble, gain, limiter };
+      const clip = ctx.createWaveShaper();
+      clip.curve = getSoftClipCurve();
+      clip.oversample = '4x';
+
+      const wet = ctx.createGain();
+
+      source.connect(bass).connect(treble).connect(gain);
+      gain.connect(dry).connect(ctx.destination);
+      gain.connect(limiter).connect(trim).connect(clip).connect(wet).connect(ctx.destination);
+
+      const nodes = { bass, treble, gain, dry, wet };
       graphs.set(el, nodes);
       setNodes(nodes, true);
     } catch (_) {
@@ -97,17 +145,36 @@
     }
   }
 
+  // Сколько ждать между переключением веток и сменой уровней, с.
+  const SWITCH_GAP = 0.1;
+
   function setNodes(n, instant = false) {
+    const on = needsLimiter(settings);
     const t = ctx.currentTime;
-    const set = (param, v) => {
-      if (instant) param.value = v;
-      else param.setTargetAtTime(v, t, 0.015); // плавно, без щелчков
+
+    // Порядок важен: прямая ветка не должна пропустить усиленный сигнал.
+    // Включаем лимитер — сначала переключаем ветку, потом поднимаем уровни.
+    // Выключаем — сначала опускаем уровни (они ещё идут через лимитер), потом переключаем.
+    const turningOn = on && !n.on;
+    const turningOff = !on && n.on;
+    const tLevels = turningOn ? t + SWITCH_GAP : t;
+    const tSwitch = turningOff ? t + SWITCH_GAP : t;
+
+    const set = (param, v, at) => {
+      if (instant) {
+        param.value = v;
+        return;
+      }
+      param.cancelScheduledValues(t); // отменяем отложенные шаги прошлого вызова
+      param.setTargetAtTime(v, at, 0.015); // плавно, без щелчков
     };
-    set(n.gain.gain, settings.volume);
-    set(n.bass.gain, settings.bass);
-    set(n.treble.gain, settings.treble);
-    // Лимитер включается только при усилении, иначе звук идёт как есть.
-    n.limiter.ratio.value = settings.volume > 1 ? 20 : 1;
+
+    set(n.gain.gain, settings.volume, tLevels);
+    set(n.bass.gain, settings.bass, tLevels);
+    set(n.treble.gain, settings.treble, tLevels);
+    set(n.wet.gain, on ? 1 : 0, tSwitch);
+    set(n.dry.gain, on ? 0 : 1, tSwitch);
+    n.on = on;
   }
 
   // ---------- Запасной режим: element.volume ----------
